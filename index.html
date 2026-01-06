@@ -1,0 +1,229 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="icon" type="image/png" href="img/icon.png">
+</head>
+<body>
+    <nav class="navbar navbar-default navbar-fixed-top">
+        <div class="navbar-header">
+            <a href="https://takartak.github.io/kodewords/" class="navbar-brand"><b>KODE</b>WORDS&nbsp;<small class="hidden-xs hidden-sm">double click them</small></a>
+            <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#menu">
+                <span class="sr-only">Toggle navigation</span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+        </div>
+        <div class="collapse navbar-collapse" id="menu">
+            <ul class="nav navbar-nav">
+                <li class="dropdown">
+                    <a href="#" class="dropdown-toggle" data-toggle="dropdown">New Game<span class="caret"></span></a>
+                    <ul class="dropdown-menu">
+                        <li><a href="#" class="reset-button" data-language="el">Ελληνικά</a></li>
+                        <li><a href="#" class="reset-button" data-language="en">English</a></li>             
+                        <li><a href="#" class="reset-button" data-language="ppl">People</a></li>
+                    </ul>
+                </li>
+                <li id="spymaster-li"><a href="#" id="spymaster">Spymaster View</a></li>
+                <li><a href="https://en.wikipedia.org/wiki/Codenames_(board_game)" target="_blank">Rules</a></li>
+                <li><a href="https://github.com/takartak/kodewords/">Source</a></li>
+            </ul>
+            <form class="navbar-form navbar-right">
+                <div class="form-group">
+                    <input type="text" class="form-control" id="seed" placeholder="seed">
+                </div>
+            </form>
+            <p class="navbar-text navbar-right remaining red">RED: <span id="red-left"></span></p>
+            <p class="navbar-text navbar-right remaining blue">BLUE: <span id="blue-left"></span></p>
+        </div>
+    </nav>
+    <div class="container">
+        <div id="game"></div>
+    </div>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/seedrandom/2.4.3/seedrandom.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            var game = {
+                num_rows: 5,
+                num_cols: 5,
+                words: [],
+                revealed: [],
+                type: [],
+                error: null,
+                wordLists: {}
+            };
+            var allrevealed = false;
+
+            // Load word lists from external JSON files
+            function loadWordLists() {
+                const languages = ['en', 'pol', 'el', 'ppl'];
+                const promises = languages.map(lang => {
+                    return fetch(`wordlists/${lang}.json`)
+                        .then(response => response.json())
+                        .then(data => {
+                            game.wordLists[lang] = data;
+                        })
+                        .catch(error => {
+                            console.error('Error loading word list for ' + lang, error);
+                        });
+                });
+                return Promise.all(promises);
+            }
+
+            // Shuffle array
+            function shuffled_array(arr) {
+                arr = arr.slice();
+                for (var i = arr.length - 1; i >= 1; --i) {
+                    var j = Math.floor(Math.random() * (i + 1));
+                    var temp = arr[i];
+                    arr[i] = arr[j];
+                    arr[j] = temp;
+                }
+                return arr;
+            }
+
+            // Render game board
+            function render() {
+                var game_ui = $("#game");
+                game_ui.empty();
+                if (game.error) {
+                    var p = $('<p class="lead" />');
+                    p.html(game.error);
+                    game_ui.append(p);
+                } else {
+                    var table = $('<table class="cards" />');
+                    if (allrevealed) {
+                        $('#spymaster-li').addClass("active");
+                    } else {
+                        $('#spymaster-li').removeClass("active");
+                    }
+                    for (var i = 0; i < game.num_rows; i++) {
+                        var row = $("<tr>");
+                        for (var j = 0; j < game.num_cols; j++) {
+                            var idx = i * game.num_cols + j;
+                            var cell = $("<td>").addClass("cell");
+                            if (game.revealed[idx] || allrevealed) {
+                                cell.addClass("cell-revealed");
+                                cell.addClass("cell-" + game.type[idx]);
+                                if (game.revealed[idx] && allrevealed) {
+                                    cell.addClass("cell-strike");
+                                }
+                            } else {
+                                cell.addClass("cell-inrevealed");
+                            }
+                            cell.click(function(idx) {
+                                return function() {
+                                    game.revealed[idx] = !game.revealed[idx];
+                                    render();
+                                }
+                            }(idx));
+                            var word = $("<span>").addClass("cell-text").text(game.words[idx]);
+                            cell.append(word);
+                            row.append(cell);
+                        }
+                        table.append(row);
+                    }
+                    game_ui.append(table);
+                    var red_left = 0;
+                    var blue_left = 0;
+                    for (var i = 0; i < game.type.length; i++) {
+                        if (game.type[i] === 'red' && !game.revealed[i]) {
+                            red_left++;
+                        }
+                        if (game.type[i] === 'blue' && !game.revealed[i]) {
+                            blue_left++;
+                        }
+                    }
+                    $('#red-left').text(red_left);
+                    $('#blue-left').text(blue_left);
+
+                    var cell_width = $('.cell').first().width();
+                    var cell_height = cell_width * (9 / 16);
+                    $('.cell').height(cell_height);
+                }
+                sessionStorage.setItem("game", JSON.stringify(game));
+            }
+
+            // Set up game from seed
+            function set_from_seed() {
+                var seed = $('#seed').val().split('-', 2);
+                sessionStorage.setItem("seed", JSON.stringify($('#seed').val()));
+                game.error = null;
+                if (seed.length != 2) {
+                    game.error = "Seed must be of form <mark>lang</mark>-<mark>phrase</mark>.";
+                    render();
+                    return;
+                }
+                var lang = seed[0];
+                var seedPhrase = seed[1];
+                if (!game.wordLists[lang]) {
+                    game.error = "Language must be one of " + Object.keys(game.wordLists).sort().join(', ') + ".";
+                    render();
+                    return;
+                }
+                var allwords = game.wordLists[lang];
+                Math.seedrandom(seedPhrase);
+                var total = game.num_rows * game.num_cols;
+                var nthings = Math.floor(total / 3);
+                game.type = [];
+                for (var i = 0; i < nthings; i++) {
+                    game.type.push("red");
+                    game.type.push("blue");
+                }
+                game.type.push(Math.random() < 0.5 ? "red" : "blue");
+                game.type.push("end");
+                while (game.type.length < total) {
+                    game.type.push("neutral");
+                }
+                game.type = shuffled_array(game.type);
+                game.revealed = new Array(total).fill(0);
+                game.words = shuffled_array(allwords).slice(0, total);
+                render();
+            }
+
+            // Reset game
+            function reset(event) {
+                var lang = "el";
+                if (event) {
+                    lang = $(event.target).attr("data-language");
+                }
+                Math.seedrandom();
+                var seed = Math.floor(Math.random() * 1e9);
+                var seed_str = lang + "-" + seed.toString(36);
+                $('#seed').val(seed_str);
+                set_from_seed();
+            }
+
+            // Event listeners
+            $("#spymaster").click(function() {
+                allrevealed = !allrevealed;
+                render();
+            });
+            $(".reset-button").click(reset);
+            $("#seed").keyup(set_from_seed);
+
+            // Load word lists and initialize the game
+            loadWordLists().then(() => {
+                // Retrieve game data from sessionStorage if available
+                if (sessionStorage.getItem("game")) {
+                    var seed = JSON.parse(sessionStorage.getItem("seed"));
+                    $('#seed').val(seed);
+                    game = JSON.parse(sessionStorage.getItem("game"));
+                    if (game.allrevealed) {
+                        allrevealed = game.allrevealed;
+                        delete game.allrevealed;
+                    }
+                    render();
+                } else {
+                    reset();
+                }
+            });
+        });
+    </script>
+</body>
+</html>
